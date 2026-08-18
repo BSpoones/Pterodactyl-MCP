@@ -1,0 +1,28 @@
+{
+  "name": "ptero-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP server for full control of multiple Pterodactyl panels (power, console, files, SFTP, backups, schedules, databases).",
+  "bin": {
+    "ptero-mcp": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ssh2": "^1.16.0",
+    "ssh2-sftp-client": "^11.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/ssh2-sftp-client": "^9.0.4",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
