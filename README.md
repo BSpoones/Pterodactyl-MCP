@@ -21,6 +21,23 @@ Using the Claude Code CLI:
 claude mcp add --scope user pterodactyl -e PTERO_PROD_URL=https://panel.example.com -e PTERO_PROD_KEY=ptlc_XXXX -e PTERO_DEFAULT_PANEL=prod -- node /path/to/Pterodactyl-MCP/dist/server.js
 ```
 
+Or the equivalent raw JSON, if you're editing the MCP settings file directly:
+
+```json
+{
+  "mcpServers": {
+    "pterodactyl": {
+      "command": "node",
+      "args": ["/path/to/Pterodactyl-MCP/dist/server.js"],
+      "env": {
+        "PTERO_PROD_URL": "https://panel.example.com",
+        "PTERO_PROD_KEY": "ptlc_XXXX",
+        "PTERO_DEFAULT_PANEL": "prod"
+      }
+    }
+  }
+}
+```
 
 Add more panels by repeating the pattern with a different alias, e.g. `PTERO_BLOOM_URL` / `PTERO_BLOOM_KEY`. Aliases are lowercased automatically and must otherwise look like `[a-z0-9][a-z0-9_-]*`.
 
