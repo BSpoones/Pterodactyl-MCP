@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PanelError } from "../panel.js";
 import { resolveServer } from "../resolve.js";
 import { jsonBlock, ok, requireConfirm, wrap } from "../toolwrap.js";
+import { withLiveConfirmed } from "../live.js";
 import {
   downloadFile,
   humanSize,
@@ -12,6 +13,11 @@ import {
   uploadFile,
   writeFileContents,
 } from "../files.js";
+
+const confirmLiveArg = z
+  .boolean()
+  .optional()
+  .describe("Required to write to a LIVE server. Only pass this when the user has just said so in this turn.");
 
 const panelArg = z
   .string()
@@ -119,14 +125,17 @@ export function registerFilesTools(server: McpServer): void {
         server: serverArg,
         path: z.string().describe("Absolute path of the file to write, e.g. /server.properties."),
         content: z.string().describe("Full new content of the file."),
+        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
-    wrap(async (args: { server: string; path: string; content: string; panel?: string }) => {
-      const ref = await resolveServer(args.server, args.panel);
-      await writeFileContents(ref, args.path, args.content);
-      return ok(`Wrote ${args.content.length} character(s) to ${args.path}.`);
-    })
+    wrap(async (args: { server: string; path: string; content: string; confirm_live?: boolean; panel?: string }) =>
+      withLiveConfirmed(args.confirm_live, async () => {
+        const ref = await resolveServer(args.server, args.panel);
+        await writeFileContents(ref, args.path, args.content);
+        return ok(`Wrote ${args.content.length} character(s) to ${args.path}.`);
+      })
+    )
   );
 
   server.registerTool(
@@ -138,14 +147,17 @@ export function registerFilesTools(server: McpServer): void {
         server: serverArg,
         local_path: z.string().describe("Path to the local file on this machine to upload."),
         remote_dir: z.string().optional().default("/").describe('Destination directory on the server (default "/").'),
+        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
-    wrap(async (args: { server: string; local_path: string; remote_dir?: string; panel?: string }) => {
-      const ref = await resolveServer(args.server, args.panel);
-      const summary = await uploadFile(ref, args.local_path, args.remote_dir ?? "/");
-      return ok(summary);
-    })
+    wrap(async (args: { server: string; local_path: string; remote_dir?: string; confirm_live?: boolean; panel?: string }) =>
+      withLiveConfirmed(args.confirm_live, async () => {
+        const ref = await resolveServer(args.server, args.panel);
+        const summary = await uploadFile(ref, args.local_path, args.remote_dir ?? "/");
+        return ok(summary);
+      })
+    )
   );
 
   server.registerTool(
@@ -177,25 +189,28 @@ export function registerFilesTools(server: McpServer): void {
         server: serverArg,
         url: z.string().describe("URL for the server to download."),
         directory: z.string().optional().default("/").describe('Destination directory on the server (default "/").'),
+        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
-    wrap(async (args: { server: string; url: string; directory?: string; panel?: string }) => {
-      const ref = await resolveServer(args.server, args.panel);
-      const directory = args.directory ?? "/";
-      const result = await pullUrl(ref, args.url, directory);
-      if (result.verified) {
+    wrap(async (args: { server: string; url: string; directory?: string; confirm_live?: boolean; panel?: string }) =>
+      withLiveConfirmed(args.confirm_live, async () => {
+        const ref = await resolveServer(args.server, args.panel);
+        const directory = args.directory ?? "/";
+        const result = await pullUrl(ref, args.url, directory);
+        if (result.verified) {
+          return ok(
+            `Pulled ${args.url} into ${directory} — "${result.name}" (${humanSize(result.size ?? 0)}) appeared on the server.`
+          );
+        }
         return ok(
-          `Pulled ${args.url} into ${directory} — "${result.name}" (${humanSize(result.size ?? 0)}) appeared on the server.`
+          `The panel accepted the pull request for ${args.url} into ${directory}, but NO new file appeared ` +
+            `there within ${result.waitedSeconds}s — treat this as failed, not pending. Common causes: the ` +
+            `server cannot reach the URL, the URL returned an error page, or the destination is wrong. ` +
+            `Re-check with list_files if you expect a very slow download.`
         );
-      }
-      return ok(
-        `The panel accepted the pull request for ${args.url} into ${directory}, but NO new file appeared ` +
-          `there within ${result.waitedSeconds}s — treat this as failed, not pending. Common causes: the ` +
-          `server cannot reach the URL, the URL returned an error page, or the destination is wrong. ` +
-          `Re-check with list_files if you expect a very slow download.`
-      );
-    })
+      })
+    )
   );
 
   server.registerTool(
@@ -222,10 +237,12 @@ export function registerFilesTools(server: McpServer): void {
         file: z.string().optional().describe("chmod: path (relative to root) of the file to change permissions on."),
         mode: z.string().optional().describe('chmod: permission mode to set, e.g. "0755".'),
         confirm: z.boolean().optional().describe("Must be true to actually perform a delete."),
+        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
-    wrap(async (args: any) => {
+    wrap(async (args: any) =>
+      withLiveConfirmed(args.confirm_live, async () => {
       const ref = await resolveServer(args.server, args.panel);
       const root = args.root ?? "/";
 
@@ -278,7 +295,8 @@ export function registerFilesTools(server: McpServer): void {
         default:
           throw new PanelError(`Unknown file_action action: ${args.action}`);
       }
-    })
+      })
+    )
   );
 
   server.registerTool(
@@ -294,10 +312,12 @@ export function registerFilesTools(server: McpServer): void {
           .optional()
           .describe("compress: paths (relative to root) to include in the new archive."),
         file: z.string().optional().describe("decompress: archive filename (relative to root) to extract."),
+        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
-    wrap(async (args: any) => {
+    wrap(async (args: any) =>
+      withLiveConfirmed(args.confirm_live, async () => {
       const ref = await resolveServer(args.server, args.panel);
       const root = args.root ?? "/";
 
@@ -327,6 +347,7 @@ export function registerFilesTools(server: McpServer): void {
       }
 
       throw new PanelError(`Unknown archive action: ${args.action}`);
-    })
+      })
+    )
   );
 }

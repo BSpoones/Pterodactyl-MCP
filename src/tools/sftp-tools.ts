@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { resolveServer } from "../resolve.js";
 import { sftpSetup, sftpTransfer } from "../sftp.js";
 import { ok, wrap } from "../toolwrap.js";
+import { assertLiveWriteConfirmed, withLiveConfirmed } from "../live.js";
 
 const panelArg = z
   .string()
@@ -26,6 +27,12 @@ export function registerSftpTools(server: McpServer): void {
         remote_path: z
           .string()
           .describe("Remote path on the server (POSIX-style, forward slashes) to upload to, or to download from."),
+        confirm_live: z
+          .boolean()
+          .optional()
+          .describe(
+            "Required for an upload (write) to a LIVE server. Only pass this when the user has just said so in this turn. Not needed for download."
+          ),
         panel: panelArg,
       },
     },
@@ -35,12 +42,17 @@ export function registerSftpTools(server: McpServer): void {
         direction: "upload" | "download";
         local_path: string;
         remote_path: string;
+        confirm_live?: boolean;
         panel?: string;
-      }) => {
-        const ref = await resolveServer(args.server, args.panel);
-        const summary = await sftpTransfer(ref, args.direction, args.local_path, args.remote_path);
-        return ok(summary);
-      }
+      }) =>
+        withLiveConfirmed(args.confirm_live, async () => {
+          const ref = await resolveServer(args.server, args.panel);
+          if (args.direction === "upload") {
+            assertLiveWriteConfirmed(ref.identifier, ref.panel.alias);
+          }
+          const summary = await sftpTransfer(ref, args.direction, args.local_path, args.remote_path);
+          return ok(summary);
+        })
     )
   );
 

@@ -54,7 +54,7 @@ export function registerDeployTools(server: McpServer): void {
         restart: z.boolean().optional().describe("Restart after upload. Default true - a jar does not load until restart."),
         watch_seconds: z.number().optional().describe("Seconds of console to capture after boot, for errors. Default 8."),
         keep_stale: z.boolean().optional().describe("Skip deleting the previous version of the same jar. Default false."),
-        confirm_live: z.boolean().optional().describe("Required to write to a LIVE server. Only pass this when Ben has just said so in this turn."),
+        confirm_live: z.boolean().optional().describe("Required to write to a LIVE server. Only pass this when the user has just said so in this turn."),
         panel: z.string().optional(),
       },
     },
