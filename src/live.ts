@@ -4,7 +4,7 @@ import { PanelError } from "./panel.js";
 /**
  * Live-server protection, enforced in code rather than by banning tool names.
  *
- * Ben's settings.json used to deny seven tools outright (archive, pull_url, write_file, ...),
+ * The user's settings.json used to deny seven tools outright (archive, pull_url, write_file, ...),
  * which protected live boxes by making zipping and URL pulls impossible everywhere - the direct
  * cause of a bulk transfer degrading into fourteen parallel per-file downloads. The real rule is
  * not "never zip", it is "never write to a live server by accident", so that is what this checks.
@@ -72,6 +72,22 @@ export function withLiveConfirmed<T>(confirm: boolean | undefined, fn: () => Pro
   return confirmed.run(true, fn);
 }
 
+/**
+ * Same guard as assertWritable, for the few write paths (raw SFTP) that never go through
+ * PanelClient.api and so can't be caught by the HTTP-method hook below.
+ */
+export function assertLiveWriteConfirmed(identifier: string, panelAlias?: string): void {
+  if (confirmed.getStore() === true) return;
+  if (process.env.PTERO_ALLOW_LIVE === "1") return;
+  const reason = liveReason(identifier, panelAlias);
+  if (!reason) return;
+  throw new PanelError(
+    `Refused: write on a LIVE server - ${reason}. ` +
+      `If the user has just confirmed a live change in this turn, re-issue with confirm_live: true. ` +
+      `Never infer live intent from context or an earlier approval.`,
+  );
+}
+
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /** Hooked into PanelClient.api so no tool can forget to call it. */
@@ -87,7 +103,7 @@ export function assertWritable(panelAlias: string, method: string, path: string)
 
   throw new PanelError(
     `Refused: ${method.toUpperCase()} on a LIVE server - ${reason}. ` +
-      `Reads are fine; this was a write. If Ben has just confirmed a live change in this turn, ` +
+      `Reads are fine; this was a write. If the user has just confirmed a live change in this turn, ` +
       `re-issue with confirm_live: true. Never infer live intent from context or an earlier approval.`,
   );
 }
