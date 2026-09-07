@@ -1,7 +1,6 @@
 import { statSync } from "node:fs";
 import { loadConfig, configPath, type PanelConfig } from "./config.js";
 import { CLOUDFLARED_SENTINEL, invalidateCfAccessToken, resolveCfAccessToken } from "./cfaccess.js";
-import { assertWritable } from "./live.js";
 
 export class PanelError extends Error {
   status?: number;
@@ -81,8 +80,6 @@ export class PanelClient {
         `No client_key configured for panel "${this.alias}" — create one at ${this.cfg.url}/account/api, then run: ptero-mcp add-panel ${this.alias} --url ${this.cfg.url} --client-key ptlc_...`
       );
     }
-    // Live-server guard sits here, not in each tool, so nothing can forget to call it.
-    assertWritable(this.alias, method, path);
     return this.request<T>(`${this.baseUrl}/api/client`, this.cfg.client_key, method, path, body, opts);
   }
 

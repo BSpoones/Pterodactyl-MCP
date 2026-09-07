@@ -1,4 +1,17 @@
+import { z } from "zod";
 import { PanelError } from "./panel.js";
+
+/**
+ * Shared `confirm_live` argument for every mutating tool. The wording is the whole safety model: the
+ * caller may only pass it when the user asked, in the current conversation, to write to that live box.
+ */
+export const confirmLiveArg = z
+  .boolean()
+  .optional()
+  .describe(
+    "Required (true) to write to a LIVE server. Pass it ONLY when the user explicitly asked, in this conversation, " +
+      "to write to this specific live server. Never inferred from urgency, a dev approval, or an earlier session."
+  );
 
 export interface TextContentResult {
   content: Array<{ type: "text"; text: string }>;

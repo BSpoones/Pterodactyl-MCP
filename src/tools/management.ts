@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getPanel, PanelError } from "../panel.js";
-import { resolveServer } from "../resolve.js";
-import { jsonBlock, ok, requireConfirm, wrap } from "../toolwrap.js";
+import { assertWriteAllowed } from "../policy.js";
+import { resolveServer, type ServerRef } from "../resolve.js";
+import { confirmLiveArg, jsonBlock, ok, requireConfirm, wrap } from "../toolwrap.js";
 
 const panelArg = z
   .string()
@@ -14,6 +15,14 @@ const serverArg = z
   .describe('Server reference: "alias:name-or-id", an 8-char identifier, a full UUID, or a unique name substring.');
 
 const confirmArg = z.boolean().optional().default(false);
+
+/** Actions that only read; everything else on these tools is a write and goes through the policy gate. */
+const READ_ACTIONS = new Set(["list", "view", "download_url", "create_backup"]);
+
+function guard(ref: ServerRef, tool: string, action: string, confirmLive: boolean | undefined): void {
+  if (READ_ACTIONS.has(action)) return;
+  assertWriteAllowed(ref, { tool, action, confirmLive });
+}
 
 /** Formats a byte count as a human-readable size (B/KB/MB/GB). Exported for unit testing. */
 export function formatBytes(bytes: number): string {
@@ -69,6 +78,7 @@ export function registerManagementTools(server: McpServer): void {
         name: z.string().optional().describe("Backup name (create only, optional)."),
         backup_uuid: z.string().optional().describe("Backup UUID (required for delete, lock, download_url)."),
         confirm: confirmArg.describe("Must be true to delete a backup."),
+        confirm_live: confirmLiveArg,
       },
     },
     wrap(
@@ -79,8 +89,11 @@ export function registerManagementTools(server: McpServer): void {
         name?: string;
         backup_uuid?: string;
         confirm?: boolean;
+        confirm_live?: boolean;
       }) => {
         const ref = await resolveServer(args.server, args.panel);
+        // Taking a backup of a live box is protective, never gated; deleting or unlocking one is.
+        if (args.action !== "create") guard(ref, "backups", args.action, args.confirm_live);
         const base = `/servers/${ref.identifier}/backups`;
 
         switch (args.action) {
@@ -151,11 +164,13 @@ export function registerManagementTools(server: McpServer): void {
           .default(false)
           .describe("If true, DELETES all current files on the server before restoring. Default false (merge over existing files)."),
         confirm: confirmArg.describe("Must be true to perform the restore."),
+        confirm_live: confirmLiveArg,
       },
     },
     wrap(
-      async (args: { server: string; panel?: string; backup_uuid: string; truncate?: boolean; confirm?: boolean }) => {
+      async (args: { server: string; panel?: string; backup_uuid: string; truncate?: boolean; confirm?: boolean; confirm_live?: boolean }) => {
         const ref = await resolveServer(args.server, args.panel);
+        guard(ref, "backup_restore", "restore", args.confirm_live);
         const truncate = args.truncate ?? false;
         requireConfirm(
           args.confirm,
@@ -187,6 +202,7 @@ export function registerManagementTools(server: McpServer): void {
         remote: z.string().optional().describe('Allowed connection host/wildcard (create only). Default "%".'),
         database_id: z.string().optional().describe("Database ID (required for rotate_password, delete)."),
         confirm: confirmArg.describe("Must be true to delete a database."),
+        confirm_live: confirmLiveArg,
       },
     },
     wrap(
@@ -198,8 +214,10 @@ export function registerManagementTools(server: McpServer): void {
         remote?: string;
         database_id?: string;
         confirm?: boolean;
+        confirm_live?: boolean;
       }) => {
         const ref = await resolveServer(args.server, args.panel);
+        guard(ref, "databases", args.action, args.confirm_live);
         const base = `/servers/${ref.identifier}/databases`;
 
         switch (args.action) {
@@ -302,6 +320,7 @@ export function registerManagementTools(server: McpServer): void {
         time_offset: z.number().int().optional().describe("Seconds to wait after the previous task before running this one."),
         task_id: z.string().optional().describe("Task ID (required for update_task, delete_task)."),
         confirm: confirmArg.describe("Must be true to delete a schedule or a task."),
+        confirm_live: confirmLiveArg,
       },
     },
     wrap(
@@ -323,8 +342,10 @@ export function registerManagementTools(server: McpServer): void {
         time_offset?: number;
         task_id?: string;
         confirm?: boolean;
+        confirm_live?: boolean;
       }) => {
         const ref = await resolveServer(args.server, args.panel);
+        guard(ref, "schedules", args.action, args.confirm_live);
         const base = `/servers/${ref.identifier}/schedules`;
 
         function formatSchedule(a: any): string {
@@ -454,6 +475,7 @@ export function registerManagementTools(server: McpServer): void {
         allocation_id: z.string().optional().describe("Allocation ID (required for set_primary, set_note, delete)."),
         note: z.string().optional().describe("Note text (set_note only)."),
         confirm: confirmArg.describe("Must be true to delete an allocation."),
+        confirm_live: confirmLiveArg,
       },
     },
     wrap(
@@ -464,8 +486,10 @@ export function registerManagementTools(server: McpServer): void {
         allocation_id?: string;
         note?: string;
         confirm?: boolean;
+        confirm_live?: boolean;
       }) => {
         const ref = await resolveServer(args.server, args.panel);
+        guard(ref, "allocations", args.action, args.confirm_live);
         const base = `/servers/${ref.identifier}/network/allocations`;
 
         switch (args.action) {
@@ -525,6 +549,7 @@ export function registerManagementTools(server: McpServer): void {
         permissions: z.array(z.string()).optional().describe("Permission strings to grant (create/update)."),
         subuser_uuid: z.string().optional().describe("Subuser UUID (required for update, delete)."),
         confirm: confirmArg.describe("Must be true to delete a subuser."),
+        confirm_live: confirmLiveArg,
       },
     },
     wrap(
@@ -536,8 +561,10 @@ export function registerManagementTools(server: McpServer): void {
         permissions?: string[];
         subuser_uuid?: string;
         confirm?: boolean;
+        confirm_live?: boolean;
       }) => {
         const ref = await resolveServer(args.server, args.panel);
+        guard(ref, "subusers", args.action, args.confirm_live);
         const base = `/servers/${ref.identifier}/users`;
 
         switch (args.action) {
@@ -589,11 +616,13 @@ export function registerManagementTools(server: McpServer): void {
         action: z.enum(["list", "set"]).describe("Which startup operation to perform."),
         key: z.string().optional().describe("Environment variable key (set only), e.g. SERVER_JARFILE."),
         value: z.string().optional().describe("New value for the variable (set only)."),
+        confirm_live: confirmLiveArg,
       },
     },
     wrap(
-      async (args: { server: string; panel?: string; action: "list" | "set"; key?: string; value?: string }) => {
+      async (args: { server: string; panel?: string; action: "list" | "set"; key?: string; value?: string; confirm_live?: boolean }) => {
         const ref = await resolveServer(args.server, args.panel);
+        guard(ref, "startup", args.action, args.confirm_live);
         const base = `/servers/${ref.identifier}/startup`;
 
         switch (args.action) {
@@ -636,10 +665,12 @@ export function registerManagementTools(server: McpServer): void {
         panel: panelArg,
         action: z.enum(["rename", "set_docker_image"]).describe("Which setting to change."),
         value: z.string().describe("New value: the server name for rename, or the docker image for set_docker_image."),
+        confirm_live: confirmLiveArg,
       },
     },
-    wrap(async (args: { server: string; panel?: string; action: "rename" | "set_docker_image"; value: string }) => {
+    wrap(async (args: { server: string; panel?: string; action: "rename" | "set_docker_image"; value: string; confirm_live?: boolean }) => {
       const ref = await resolveServer(args.server, args.panel);
+      guard(ref, "server_settings", args.action, args.confirm_live);
       switch (args.action) {
         case "rename": {
           await ref.panel.api("POST", `/servers/${ref.identifier}/settings/rename`, { name: args.value });
@@ -666,10 +697,12 @@ export function registerManagementTools(server: McpServer): void {
         server: serverArg,
         panel: panelArg,
         confirm: confirmArg.describe("Must be true to reinstall."),
+        confirm_live: confirmLiveArg,
       },
     },
-    wrap(async (args: { server: string; panel?: string; confirm?: boolean }) => {
+    wrap(async (args: { server: string; panel?: string; confirm?: boolean; confirm_live?: boolean }) => {
       const ref = await resolveServer(args.server, args.panel);
+      guard(ref, "reinstall_server", "reinstall", args.confirm_live);
       requireConfirm(args.confirm, `wipe and re-run the egg install script for server ${ref.name}`);
       await ref.panel.api("POST", `/servers/${ref.identifier}/settings/reinstall`);
       return ok(`Reinstall triggered for ${ref.name}.`);

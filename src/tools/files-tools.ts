@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { basename } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PanelError } from "../panel.js";
+import { assertWriteAllowed, fileActionPaths } from "../policy.js";
 import { resolveServer } from "../resolve.js";
-import { jsonBlock, ok, requireConfirm, wrap } from "../toolwrap.js";
-import { withLiveConfirmed } from "../live.js";
+import { confirmLiveArg, jsonBlock, ok, requireConfirm, wrap } from "../toolwrap.js";
 import {
   downloadFile,
   humanSize,
@@ -13,11 +14,6 @@ import {
   uploadFile,
   writeFileContents,
 } from "../files.js";
-
-const confirmLiveArg = z
-  .boolean()
-  .optional()
-  .describe("Required to write to a LIVE server. Only pass this when the user has just said so in this turn.");
 
 const panelArg = z
   .string()
@@ -120,7 +116,9 @@ export function registerFilesTools(server: McpServer): void {
   server.registerTool(
     "write_file",
     {
-      description: "Write (overwrite or create) a text file on a server with the given content.",
+      description:
+        "Write (overwrite or create) a text file on a server with the given content. Refused on LIVE servers without " +
+        "confirm_live, and refused outright under a deploy-repo-managed path (the file would be wiped on the next boot).",
       inputSchema: {
         server: serverArg,
         path: z.string().describe("Absolute path of the file to write, e.g. /server.properties."),
@@ -129,20 +127,21 @@ export function registerFilesTools(server: McpServer): void {
         panel: panelArg,
       },
     },
-    wrap(async (args: { server: string; path: string; content: string; confirm_live?: boolean; panel?: string }) =>
-      withLiveConfirmed(args.confirm_live, async () => {
-        const ref = await resolveServer(args.server, args.panel);
-        await writeFileContents(ref, args.path, args.content);
-        return ok(`Wrote ${args.content.length} character(s) to ${args.path}.`);
-      })
-    )
+    wrap(async (args: { server: string; path: string; content: string; confirm_live?: boolean; panel?: string }) => {
+      const ref = await resolveServer(args.server, args.panel);
+      assertWriteAllowed(ref, { tool: "write_file", paths: [args.path], confirmLive: args.confirm_live });
+      await writeFileContents(ref, args.path, args.content);
+      return ok(`Wrote ${args.content.length} character(s) to ${args.path}.`);
+    })
   );
 
   server.registerTool(
     "upload_file",
     {
       description:
-        "Upload a local file to the server (e.g. a plugin jar into /plugins). Files over ~95 MB automatically use SFTP.",
+        "Upload a local file to the server (e.g. a plugin jar into /plugins). Files over ~95 MB automatically use SFTP. " +
+        "Refused on LIVE servers without confirm_live, and refused outright into a deploy-repo-managed directory such as " +
+        "/mods on Cobblemon Islands (those jars go through the deploy repo; a panel upload is deleted on the next boot).",
       inputSchema: {
         server: serverArg,
         local_path: z.string().describe("Path to the local file on this machine to upload."),
@@ -151,13 +150,17 @@ export function registerFilesTools(server: McpServer): void {
         panel: panelArg,
       },
     },
-    wrap(async (args: { server: string; local_path: string; remote_dir?: string; confirm_live?: boolean; panel?: string }) =>
-      withLiveConfirmed(args.confirm_live, async () => {
-        const ref = await resolveServer(args.server, args.panel);
-        const summary = await uploadFile(ref, args.local_path, args.remote_dir ?? "/");
-        return ok(summary);
-      })
-    )
+    wrap(async (args: { server: string; local_path: string; remote_dir?: string; confirm_live?: boolean; panel?: string }) => {
+      const ref = await resolveServer(args.server, args.panel);
+      const remoteDir = args.remote_dir ?? "/";
+      assertWriteAllowed(ref, {
+        tool: "upload_file",
+        paths: [remoteDir, `${remoteDir}/${basename(args.local_path)}`],
+        confirmLive: args.confirm_live,
+      });
+      const summary = await uploadFile(ref, args.local_path, remoteDir);
+      return ok(summary);
+    })
   );
 
   server.registerTool(
@@ -184,7 +187,8 @@ export function registerFilesTools(server: McpServer): void {
       description:
         "Have the SERVER itself download a file from a URL directly into its filesystem (e.g. installing a " +
         "plugin/mod jar from a download link) — no local round-trip through this machine. Waits up to 20s to " +
-        "confirm a file actually landed, and says so explicitly if none did.",
+        "confirm a file actually landed, and says so explicitly if none did. Refused on LIVE servers without confirm_live " +
+        "and refused outright into a deploy-repo-managed directory.",
       inputSchema: {
         server: serverArg,
         url: z.string().describe("URL for the server to download."),
@@ -193,32 +197,33 @@ export function registerFilesTools(server: McpServer): void {
         panel: panelArg,
       },
     },
-    wrap(async (args: { server: string; url: string; directory?: string; confirm_live?: boolean; panel?: string }) =>
-      withLiveConfirmed(args.confirm_live, async () => {
-        const ref = await resolveServer(args.server, args.panel);
-        const directory = args.directory ?? "/";
-        const result = await pullUrl(ref, args.url, directory);
-        if (result.verified) {
-          return ok(
-            `Pulled ${args.url} into ${directory} — "${result.name}" (${humanSize(result.size ?? 0)}) appeared on the server.`
-          );
-        }
+    wrap(async (args: { server: string; url: string; directory?: string; confirm_live?: boolean; panel?: string }) => {
+      const ref = await resolveServer(args.server, args.panel);
+      const directory = args.directory ?? "/";
+      assertWriteAllowed(ref, { tool: "pull_url", paths: [directory], confirmLive: args.confirm_live });
+      const result = await pullUrl(ref, args.url, directory);
+      if (result.verified) {
         return ok(
-          `The panel accepted the pull request for ${args.url} into ${directory}, but NO new file appeared ` +
-            `there within ${result.waitedSeconds}s — treat this as failed, not pending. Common causes: the ` +
-            `server cannot reach the URL, the URL returned an error page, or the destination is wrong. ` +
-            `Re-check with list_files if you expect a very slow download.`
+          `Pulled ${args.url} into ${directory} — "${result.name}" (${humanSize(result.size ?? 0)}) appeared on the server.`
         );
-      })
-    )
+      }
+      return ok(
+        `The panel accepted the pull request for ${args.url} into ${directory}, but NO new file appeared ` +
+          `there within ${result.waitedSeconds}s — treat this as failed, not pending. Common causes: the ` +
+          `server cannot reach the URL, the URL returned an error page, or the destination is wrong. ` +
+          `Re-check with list_files if you expect a very slow download.`
+      );
+    })
   );
 
   server.registerTool(
     "file_action",
     {
       description:
-        "Perform a file/folder management action on a server: move (rename), copy, delete, mkdir, or chmod. delete is destructive and requires confirm: true.",
+        "Perform a file/folder management action on a server: move (rename), copy, delete, mkdir, or chmod. delete is destructive and requires confirm: true. " +
+        "Refused on LIVE servers without confirm_live and refused outright under a deploy-repo-managed path.",
       inputSchema: {
+        confirm_live: confirmLiveArg,
         server: serverArg,
         action: z.enum(["move", "copy", "delete", "mkdir", "chmod"]).describe("Which action to perform."),
         root: z
@@ -237,14 +242,18 @@ export function registerFilesTools(server: McpServer): void {
         file: z.string().optional().describe("chmod: path (relative to root) of the file to change permissions on."),
         mode: z.string().optional().describe('chmod: permission mode to set, e.g. "0755".'),
         confirm: z.boolean().optional().describe("Must be true to actually perform a delete."),
-        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
-    wrap(async (args: any) =>
-      withLiveConfirmed(args.confirm_live, async () => {
+    wrap(async (args: any) => {
       const ref = await resolveServer(args.server, args.panel);
       const root = args.root ?? "/";
+      assertWriteAllowed(ref, {
+        tool: "file_action",
+        action: args.action,
+        paths: fileActionPaths({ ...args, root }),
+        confirmLive: args.confirm_live,
+      });
 
       switch (args.action) {
         case "move": {
@@ -295,31 +304,38 @@ export function registerFilesTools(server: McpServer): void {
         default:
           throw new PanelError(`Unknown file_action action: ${args.action}`);
       }
-      })
-    )
+    })
   );
 
   server.registerTool(
     "archive",
     {
-      description: "Compress files/folders into an archive, or decompress an existing archive, on a server.",
+      description:
+        "Compress files/folders into an archive, or decompress an existing archive, on a server. " +
+        "Refused on LIVE servers without confirm_live; decompress is refused outright under a deploy-repo-managed path.",
       inputSchema: {
         server: serverArg,
         action: z.enum(["compress", "decompress"]).describe("Which action to perform."),
+        confirm_live: confirmLiveArg,
         root: z.string().optional().default("/").describe('Base directory that files/file are relative to (default "/").'),
         files: z
           .array(z.string())
           .optional()
           .describe("compress: paths (relative to root) to include in the new archive."),
         file: z.string().optional().describe("decompress: archive filename (relative to root) to extract."),
-        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
-    wrap(async (args: any) =>
-      withLiveConfirmed(args.confirm_live, async () => {
+    wrap(async (args: any) => {
       const ref = await resolveServer(args.server, args.panel);
       const root = args.root ?? "/";
+      // Compressing only adds an archive beside its inputs; decompressing scatters files, so only it hits managed paths.
+      assertWriteAllowed(ref, {
+        tool: "archive",
+        action: args.action,
+        paths: args.action === "decompress" ? [root] : [],
+        confirmLive: args.confirm_live,
+      });
 
       if (args.action === "compress") {
         if (!args.files || args.files.length === 0) {
@@ -347,7 +363,6 @@ export function registerFilesTools(server: McpServer): void {
       }
 
       throw new PanelError(`Unknown archive action: ${args.action}`);
-      })
-    )
+    })
   );
 }

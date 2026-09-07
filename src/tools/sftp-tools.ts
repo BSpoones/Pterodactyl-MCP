@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { assertWriteAllowed } from "../policy.js";
 import { resolveServer } from "../resolve.js";
 import { sftpSetup, sftpTransfer } from "../sftp.js";
-import { ok, wrap } from "../toolwrap.js";
-import { assertLiveWriteConfirmed, withLiveConfirmed } from "../live.js";
+import { confirmLiveArg, ok, wrap } from "../toolwrap.js";
 
 const panelArg = z
   .string()
@@ -19,7 +19,8 @@ export function registerSftpTools(server: McpServer): void {
     "sftp_transfer",
     {
       description:
-        "Transfer files/directories over SFTP. Use for large files (>100 MB) or bulk/recursive transfers; upload_file handles small files more simply.",
+        "Transfer files/directories over SFTP. Use for large files (>100 MB) or bulk/recursive transfers; upload_file handles small files more simply. " +
+        "Uploads are refused on LIVE servers without confirm_live and refused outright into a deploy-repo-managed path. Downloads are always allowed.",
       inputSchema: {
         server: serverArg,
         direction: z.enum(["upload", "download"]).describe('Transfer direction: "upload" (local -> remote) or "download" (remote -> local).'),
@@ -27,12 +28,7 @@ export function registerSftpTools(server: McpServer): void {
         remote_path: z
           .string()
           .describe("Remote path on the server (POSIX-style, forward slashes) to upload to, or to download from."),
-        confirm_live: z
-          .boolean()
-          .optional()
-          .describe(
-            "Required for an upload (write) to a LIVE server. Only pass this when the user has just said so in this turn. Not needed for download."
-          ),
+        confirm_live: confirmLiveArg,
         panel: panelArg,
       },
     },
@@ -44,15 +40,14 @@ export function registerSftpTools(server: McpServer): void {
         remote_path: string;
         confirm_live?: boolean;
         panel?: string;
-      }) =>
-        withLiveConfirmed(args.confirm_live, async () => {
-          const ref = await resolveServer(args.server, args.panel);
-          if (args.direction === "upload") {
-            assertLiveWriteConfirmed(ref.identifier, ref.panel.alias);
-          }
-          const summary = await sftpTransfer(ref, args.direction, args.local_path, args.remote_path);
-          return ok(summary);
-        })
+      }) => {
+        const ref = await resolveServer(args.server, args.panel);
+        if (args.direction === "upload") {
+          assertWriteAllowed(ref, { tool: "sftp_transfer", action: "upload", paths: [args.remote_path], confirmLive: args.confirm_live });
+        }
+        const summary = await sftpTransfer(ref, args.direction, args.local_path, args.remote_path);
+        return ok(summary);
+      }
     )
   );
 

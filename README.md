@@ -127,6 +127,27 @@ This prompts with echo disabled, so the password never reaches your screen, your
 
 The first time Claude connects over SFTP to a given host:port, it remembers the server's host key in `~/.ptero-mcp/known_hosts.json` (trust-on-first-use). If that host key ever changes unexpectedly on a later connection, the tool refuses to connect rather than silently trusting a possibly-different machine — see the error message for how to clear the stored entry if the change was expected (e.g. the node was reinstalled).
 
+## Write policy (dev / staging / live / retired, deploy-repo-managed paths)
+
+Every mutating tool (`write_file`, `upload_file`, `pull_url`, `file_action`, `archive`, `sftp_transfer` upload,
+`power`, `send_command`, `startup set`, `server_settings`, `reinstall_server`, `backup_restore`, and the
+non-list actions of `backups`/`databases`/`schedules`/`allocations`/`subusers`) resolves its server and then
+passes through `src/policy.ts` before touching the panel:
+
+| Classification | Effect |
+|---|---|
+| `dev` / `staging` | write allowed |
+| `live` | refused unless the call carries `confirm_live: true` — which the caller may pass **only** when the user explicitly asked, in the current conversation, to write to that live server |
+| `retired` | always refused |
+| path under a `managed` rule | always refused, no override — the server rebuilds that directory from a git deploy repo on every boot, so the write would be silently undone. The error names the repo and the skill that owns the correct flow |
+
+Classification comes from `~/.ptero-mcp/policy.json` (override with `PTERO_MCP_POLICY`), hot-reloaded on
+change: a `servers["<panel>:<identifier>"]` entry wins, then the `panels["<alias>"]` default, then the
+server's **name** (`dev`/`staging`/`playtest`/`test` → dev, `OLD`/`retired` → retired), and anything else
+is **live**. With no policy file at all, every server is classified by name — unknown names are live.
+
+Backup `create` is never gated (taking a backup of a live box is protective). Reads are never gated.
+
 ## Notes
 
 - Auth is **API-key only** by design — no panel passwords are used or stored for login.

@@ -1,5 +1,4 @@
 import { allPanels, getPanel, PanelError, type PanelClient } from "./panel.js";
-import { rememberServer } from "./live.js";
 
 export interface ServerRef {
   panel: PanelClient;
@@ -31,7 +30,6 @@ async function fetchServerList(panel: PanelClient, type?: string): Promise<Liste
     );
     for (const entry of response.data ?? []) {
       servers.push({ panel: panel.alias, attributes: entry.attributes });
-      rememberServer(entry.attributes?.identifier, entry.attributes?.name);
     }
     const totalPages = response.meta?.pagination?.total_pages ?? 1;
     if (page >= totalPages) break;

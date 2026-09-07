@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerMetaTools } from "./tools/meta.js";
 import { registerPowerTools } from "./tools/power.js";
-import { registerDeployTools } from "./tools/deploy.js";
 import { registerConsoleTools } from "./tools/console-tools.js";
 import { registerFilesTools } from "./tools/files-tools.js";
 import { registerSftpTools } from "./tools/sftp-tools.js";
@@ -20,7 +19,6 @@ async function main(): Promise<void> {
   registerFilesTools(server);
   registerSftpTools(server);
   registerManagementTools(server);
-  registerDeployTools(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
