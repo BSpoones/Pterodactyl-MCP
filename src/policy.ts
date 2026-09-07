@@ -125,7 +125,7 @@ export function classifyServer(ref: ServerRef, policy: Policy = loadPolicy()): C
   return { env: "live", managed, source: "default" };
 }
 
-/** `"Staging Playtest 1" (f3be6903 on ci-synx)` — names first, ids second, so messages read as servers not hashes. */
+/** `"Lobby (staging)" (a1b2c3d4 on prod)` — names first, ids second, so messages read as servers not hashes. */
 export function describeServer(ref: ServerRef): string {
   return `"${ref.name}" (${ref.identifier} on ${ref.panel.alias})`;
 }

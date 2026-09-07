@@ -41,7 +41,7 @@ async function listen(handler: Parameters<typeof createServer>[1]): Promise<Stub
 async function workingPanel(): Promise<Stub> {
   return listen((_req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ attributes: { username: "ben" } }));
+    res.end(JSON.stringify({ attributes: { username: "testuser" } }));
   });
 }
 
@@ -157,7 +157,7 @@ describe("a panel with no Access gate", () => {
 
     const account = await panelClient(panel.url).api<{ attributes: { username: string } }>("GET", "/account");
 
-    expect(account.attributes.username).toBe("ben");
+    expect(account.attributes.username).toBe("testuser");
     expect(panel.lastHeaders()["cf-access-token"]).toBeUndefined();
   });
 

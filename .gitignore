@@ -1,3 +1,34 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+*.tsbuildinfo
+
+# Local scratch / working files
+scratch/
+tmp/
 *.log
+
+# Local config & secrets
+.env
+.env.*
+!.env.example
+config.json
+policy.json
+known_hosts.json
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+
+# Local tooling
+.claude/settings.local.json
+.code-review-graph/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

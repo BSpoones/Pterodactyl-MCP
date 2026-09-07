@@ -140,8 +140,8 @@ export function registerFilesTools(server: McpServer): void {
     {
       description:
         "Upload a local file to the server (e.g. a plugin jar into /plugins). Files over ~95 MB automatically use SFTP. " +
-        "Refused on LIVE servers without confirm_live, and refused outright into a deploy-repo-managed directory such as " +
-        "/mods on Cobblemon Islands (those jars go through the deploy repo; a panel upload is deleted on the next boot).",
+        "Refused on LIVE servers without confirm_live, and refused outright into a deploy-repo-managed directory " +
+        "(those files go through the deploy repo; a panel upload is deleted on the next boot).",
       inputSchema: {
         server: serverArg,
         local_path: z.string().describe("Path to the local file on this machine to upload."),
